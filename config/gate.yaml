@@ -1,0 +1,8 @@
+# Release gate. A release is blocked unless every metric is >= its threshold
+# and no more than max_errors samples failed to evaluate.
+thresholds:
+  faithfulness_mean: 0.90      # headline gate: share of answer claims supported by retrieved context
+  faithfulness_min: 0.50       # no single answer may be mostly unsupported
+  answer_correctness_mean: 0.70
+  context_recall_mean: 0.70
+max_errors: 0

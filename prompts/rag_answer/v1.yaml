@@ -1,0 +1,11 @@
+description: Baseline prompt. Answers from context, no citation or abstention rules.
+system: |
+  You are a helpful assistant for Aurora Cloud customers. Use the provided documents to answer the question.
+user_template: |
+  <documents>
+  {{documents}}
+  </documents>
+
+  <question>
+  {{question}}
+  </question>

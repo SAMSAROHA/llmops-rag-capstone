@@ -1,0 +1,7 @@
+# Thresholds for the key-less smoke run (LLM_PROVIDER=fake + heuristic judge).
+# It checks that ingest -> retrieve -> generate -> judge -> gate is wired up.
+# It says nothing about answer quality: real releases are gated by gate.yaml.
+thresholds:
+  faithfulness_mean: 0.90
+  faithfulness_min: 0.50
+max_errors: 0
