@@ -1,0 +1,85 @@
+name: release-gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - run: pytest
+      - name: Offline smoke run of the gate plumbing (no API key, no quality signal)
+        env:
+          LLM_PROVIDER: fake
+          EMBEDDING_PROVIDER: hash
+        run: |
+          ragapp ingest --recreate
+          ragapp gate --gate-file config/gate.offline.yaml --out reports/offline
+
+  faithfulness-gate:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      FASTEMBED_CACHE_PATH: /home/runner/.cache/fastembed
+    outputs:
+      ran: ${{ steps.key.outputs.present }}
+    steps:
+      - name: Check for the API key
+        id: key
+        # Without the secret (forks, fresh clones) the gate is skipped, and so is
+        # the release job below: nothing ships without a passing gate.
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::ANTHROPIC_API_KEY secret is not set: faithfulness gate skipped, release blocked."
+          fi
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.present == 'true'
+      - uses: actions/setup-python@v5
+        if: steps.key.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+          cache: pip
+      - if: steps.key.outputs.present == 'true'
+        run: pip install -e .
+      - uses: actions/cache@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          path: /home/runner/.cache/fastembed
+          key: fastembed-bge-small-en-v1.5
+      - name: Index the corpus
+        if: steps.key.outputs.present == 'true'
+        run: ragapp ingest --recreate
+      - name: Evaluate the golden set and enforce thresholds (exit 1 blocks the release)
+        if: steps.key.outputs.present == 'true'
+        run: ragapp gate
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.key.outputs.present == 'true'
+        with:
+          name: eval-report
+          path: |
+            reports/
+            mlflow.db
+
+  release:
+    # Only reachable when the faithfulness gate actually ran and passed.
+    needs: faithfulness-gate
+    if: startsWith(github.ref, 'refs/tags/v') && needs.faithfulness-gate.outputs.ran == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t ragapp:${{ github.ref_name }} .
+      # Push / deploy steps for your registry and platform go here.
